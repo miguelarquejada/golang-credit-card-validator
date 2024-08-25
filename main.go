@@ -1,13 +1,16 @@
 package main
 
 import (
-	"bufio"
+	"encoding/json"
 	"fmt"
 	"log"
-	"os"
+	"net/http"
 	"strconv"
-	"strings"
 )
+
+type CreditCardRequest struct {
+	Number string `json:"number"`
+}
 
 func RunLuhnAlgorithm(number string) bool {
 	var numberSlice []int
@@ -38,38 +41,43 @@ func RunLuhnAlgorithm(number string) bool {
 	return sum != 0 && sum%10 == 0
 }
 
+func ValidateCreditCardHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req CreditCardRequest
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&req); err != nil {
+		http.Error(w, "Erro na leitura do JSON", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Number) < 12 || len(req.Number) > 19 {
+		http.Error(w, "Número deve ter entre 12 e 19 dígitos", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := strconv.Atoi(req.Number); err != nil {
+		http.Error(w, "Deve possuir apenas números", http.StatusBadRequest)
+		return
+	}
+
+	if RunLuhnAlgorithm(req.Number) {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	http.Error(w, "Número INVÁLIDO!", http.StatusBadRequest)
+}
+
 func main() {
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		fmt.Print("\nDigite um número de cartão de crédito, apenas números (ou 'sair' para terminar): ")
-		scanner.Scan()
-		input := scanner.Text()
+	http.HandleFunc("/validate", ValidateCreditCardHandler)
 
-		// Verifica se o usuário deseja sair
-		if strings.ToLower(input) == "sair" {
-			fmt.Println("Saindo...")
-			break
-		}
+	fmt.Println("Servidor iniciado na porta 8080")
 
-		// Possuir somente números
-		if _, err := strconv.Atoi(input); err != nil {
-			fmt.Println("Deve possuir apenas números.")
-			continue
-		}
-
-		// Ter entre 12 e 19 dígitos
-		if len(input) > 19 || len(input) < 12 {
-			fmt.Println("Número deve ter entre 12 e 19 dígitos.")
-			continue
-		}
-
-		// todo: Os 6 primeiros dígitos devem indicar um IIN (Issuer identification number) válido
-
-		// Passar na validação do Algoritmo de Luhn
-		if RunLuhnAlgorithm(input) {
-			fmt.Println("Número VÁLIDO!")
-		} else {
-			fmt.Println("Número INVÁLIDO!")
-		}
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		fmt.Printf("Erro ao iniciar servidor: %v\n", err)
 	}
 }
